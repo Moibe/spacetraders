@@ -1,1 +1,12 @@
+# Entorno virtual
 /venv/
+
+# Secretos: token de cuenta y token del agente
+.env
+/.spacetraders/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/

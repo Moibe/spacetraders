@@ -1,0 +1,8 @@
+-r requirements.txt
+
+# Tests
+pytest>=8.0
+# Linter/formatter
+ruff>=0.6
+# Genera spacetraders/models.py desde el OpenAPI (ver tools/generate_models.py)
+datamodel-code-generator[http]>=0.26
