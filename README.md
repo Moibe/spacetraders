@@ -22,7 +22,7 @@ bots/
   contract_runner.py   bot que cierra contratos de aprovisionamiento
 tools/
   generate_models.py   regenera models.py desde el spec oficial
-tests/                 49 tests (45 sin red + 4 contra la API real)
+tests/                 56 tests (52 sin red + 4 contra la API real)
 ```
 
 ## Arranque
@@ -132,6 +132,12 @@ como `camelCase` a la API.
   **no** se reintentan ante un fallo sin respuesta, para no comprar o entregar dos veces.
 - **Paginación**: `paginate()` recorre páginas hasta `meta.total`, con `max_pages` para
   no barrer los 200.000 waypoints del universo sin querer.
+- **Cuerpos vacíos**: la API rechaza un `Content-Type: application/json` sin cuerpo, así
+  que las acciones sin payload (orbit, dock, accept, extract…) mandan `{}`.
+- **Desfase de reloj**: mide el offset contra la cabecera `Date` en cada respuesta. En
+  un juego donde todo está cronometrado, un reloj local corrido unos minutos hace que
+  preguntes por la nave antes de que aterrice; `fleet.wait_for_arrival()` corrige la
+  estimación con ese offset y además confirma sondeando la API.
 - **Errores**: `UnauthorizedError`, `NotFoundError`, `RateLimitError`, `ServerError`,
   todos con el `code` y el `requestId` de la API.
 

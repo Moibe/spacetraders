@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from collections.abc import Iterator
 from typing import Any
 
+from ..errors import SpaceTradersError
 from ..models import (
     Cooldown,
     Ship,
@@ -36,6 +39,8 @@ from .results import (
     SystemScan,
     WaypointScan,
 )
+
+log = logging.getLogger("spacetraders.fleet")
 
 
 class FleetApi(ApiSection):
@@ -112,6 +117,38 @@ class FleetApi(ApiSection):
             json={"waypointSymbol": waypoint_symbol},
         )
         return JumpResult.model_validate(data)
+
+    def wait_for_arrival(
+        self,
+        ship_symbol: str,
+        *,
+        poll_interval: float = 5.0,
+        timeout: float = 900.0,
+    ) -> ShipNav:
+        """Espera a que la nave termine su viaje y devuelve su nav final.
+
+        La estimacion sale de `nav.route.arrival` corregida por el desfase de reloj
+        del cliente, pero la verdad la tiene la API: despues de dormir lo estimado
+        se vuelve a preguntar, y si sigue en transito se sondea cada
+        `poll_interval`. Sin ese sondeo, un reloj local corrido hace que la accion
+        siguiente falle con "ship is currently in-transit".
+        """
+        nav = self.get_nav(ship_symbol)
+        inicio = time.monotonic()
+
+        while str(nav.status) == "IN_TRANSIT":
+            if time.monotonic() - inicio > timeout:
+                raise SpaceTradersError(
+                    f"{ship_symbol} sigue en transito despues de {timeout:.0f}s "
+                    f"(llegada estimada {nav.route.arrival})"
+                )
+            restante = (nav.route.arrival - self.client.server_now()).total_seconds() + 1
+            espera = restante if restante > 0 else poll_interval
+            log.info("%s en transito; esperando %.0fs", ship_symbol, espera)
+            time.sleep(espera)
+            nav = self.get_nav(ship_symbol)
+
+        return nav
 
     def set_flight_mode(
         self, ship_symbol: str, flight_mode: ShipNavFlightMode | str

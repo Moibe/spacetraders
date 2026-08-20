@@ -12,7 +12,8 @@ import logging
 import random
 import time
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from email.utils import parsedate_to_datetime
 from typing import Any, TypeVar
 
 import requests
@@ -34,6 +35,9 @@ M = TypeVar("M", bound=BaseModel)
 # Metodos idempotentes: seguros de reintentar ante un fallo de red sin respuesta.
 IDEMPOTENT_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
+# Metodos donde un cuerpo ausente hay que mandarlo como `{}` (ver request_raw).
+BODYLESS_NEEDS_EMPTY_JSON = frozenset({"POST", "PATCH", "PUT"})
+
 MAX_BACKOFF_SECONDS = 30.0
 
 
@@ -54,6 +58,8 @@ class ApiClient:
         self.limiter = limiter or RateLimiter()
         self._session = session or requests.Session()
         self._sleep = sleep
+        # Segundos que el reloj del servidor le lleva al local (ver server_now).
+        self._clock_skew = 0.0
         self._session.headers.update(
             {
                 "Accept": "application/json",
@@ -61,6 +67,45 @@ class ApiClient:
                 "User-Agent": "moibe-spacetraders/0.2",
             }
         )
+
+    # ------------------------------------------------------------------- reloj
+
+    @property
+    def clock_skew(self) -> float:
+        """Desfase medido entre el reloj del servidor y el local, en segundos."""
+        return self._clock_skew
+
+    def server_now(self) -> datetime:
+        """Hora estimada del servidor.
+
+        En SpaceTraders todo esta cronometrado (llegadas, cooldowns, deadlines) y
+        los tiempos vienen en la hora del servidor. Si el reloj local esta corrido
+        -- unos minutos de deriva alcanzan -- restar `datetime.now()` de una hora
+        de llegada da de menos y se le pregunta a la API antes de que la nave
+        aterrice. Por eso se corrige con el desfase medido de la cabecera `Date`.
+        """
+        return datetime.now(UTC) + timedelta(seconds=self._clock_skew)
+
+    def _actualizar_skew(self, respuesta: requests.Response) -> None:
+        """Recalcula el desfase con la cabecera `Date` de cada respuesta."""
+        fecha = respuesta.headers.get("Date")
+        if not fecha:
+            return
+        try:
+            hora_servidor = parsedate_to_datetime(fecha)
+        except (TypeError, ValueError):
+            return
+        if hora_servidor.tzinfo is None:
+            hora_servidor = hora_servidor.replace(tzinfo=UTC)
+
+        anterior = self._clock_skew
+        self._clock_skew = (hora_servidor - datetime.now(UTC)).total_seconds()
+        # `Date` viene con resolucion de segundos, asi que +-1s es ruido normal.
+        if abs(self._clock_skew - anterior) > 5:
+            log.info(
+                "reloj local desfasado %.0fs respecto al servidor; se corrigen las esperas",
+                self._clock_skew,
+            )
 
     # ------------------------------------------------------------------ tokens
 
@@ -95,6 +140,12 @@ class ApiClient:
         intentos = self.settings.max_retries + 1
         ultimo_error: Exception | None = None
 
+        # Muchas acciones no llevan cuerpo (orbit, dock, accept, extract...), pero la
+        # API rechaza con error 3001 un `Content-Type: application/json` con cuerpo
+        # vacio: pide un objeto vacio explicito.
+        if json is None and method in BODYLESS_NEEDS_EMPTY_JSON:
+            json = {}
+
         for intento in range(1, intentos + 1):
             self.limiter.acquire()
 
@@ -118,6 +169,7 @@ class ApiClient:
                 )
                 continue
 
+            self._actualizar_skew(respuesta)
             payload = self._payload(respuesta)
 
             if respuesta.ok:
@@ -248,8 +300,7 @@ class ApiClient:
         except ValueError:
             return {"error": {"message": respuesta.text[:500]}}
 
-    @staticmethod
-    def _espera_de_rate_limit(respuesta: requests.Response) -> float:
+    def _espera_de_rate_limit(self, respuesta: requests.Response) -> float:
         """Cuanto esperar tras un 429, segun lo que diga la propia API."""
         retry_after = respuesta.headers.get("Retry-After")
         if retry_after:
@@ -262,7 +313,8 @@ class ApiClient:
         if reset:
             try:
                 momento = datetime.fromisoformat(reset.replace("Z", "+00:00"))
-                delta = (momento - datetime.now(UTC)).total_seconds()
+                # `X-RateLimit-Reset` viene en hora del servidor, no en la local.
+                delta = (momento - self.server_now()).total_seconds()
                 if delta > 0:
                     return min(delta, MAX_BACKOFF_SECONDS)
             except ValueError:

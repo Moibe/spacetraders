@@ -18,8 +18,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import time
-from datetime import UTC, datetime
 
 from spacetraders import ApiError, Session, SpaceTradersError
 from spacetraders.api import system_of
@@ -298,31 +296,20 @@ class ContractRunner:
 
     def viajar(self, nave: Ship, destino: str) -> None:
         """Lleva la nave al waypoint, esperando la llegada si hace falta."""
-        nave = self.esperar_llegada(nave)
-        if nave.nav.waypoint_symbol == destino:
+        self.fleet.wait_for_arrival(nave.symbol)
+        if self.fleet.get_nav(nave.symbol).waypoint_symbol == destino:
             return
 
         self._orbitar(nave)
         resultado = self.fleet.navigate(nave.symbol, destino)
-        llegada = resultado.nav.route.arrival
-        log.info("navegando a %s, llega %s", destino, llegada)
-        self._dormir_hasta(llegada)
-
-    def esperar_llegada(self, nave: Ship) -> Ship:
-        """Si la nave esta en transito, espera a que aterrice."""
-        if str(nave.nav.status) != "IN_TRANSIT":
-            return nave
-        log.info("la nave esta en transito; esperando hasta %s", nave.nav.route.arrival)
-        self._dormir_hasta(nave.nav.route.arrival)
-        return self.fleet.get_ship(nave.symbol)
-
-    @staticmethod
-    def _dormir_hasta(momento: datetime) -> None:
-        # +1s de colchon: si preguntamos exactamente al segundo de llegada, la API
-        # todavia puede reportar IN_TRANSIT.
-        restante = (momento - datetime.now(UTC)).total_seconds() + 1
-        if restante > 0:
-            time.sleep(restante)
+        log.info(
+            "navegando a %s, llega %s (fuel %s/%s)",
+            destino,
+            resultado.nav.route.arrival,
+            resultado.fuel.current if resultado.fuel else "?",
+            resultado.fuel.capacity if resultado.fuel else "?",
+        )
+        self.fleet.wait_for_arrival(nave.symbol)
 
     def _orbitar(self, nave: Ship) -> None:
         if str(nave.nav.status) == "DOCKED":

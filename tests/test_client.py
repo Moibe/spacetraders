@@ -263,3 +263,23 @@ def test_paginate_parsea_modelos_y_conserva_filtros(settings):
 
     assert isinstance(agentes[0], Agent)
     assert sesion.llamadas[0]["params"]["traits"] == "MARKETPLACE"
+
+
+def test_un_post_sin_cuerpo_manda_objeto_vacio(settings):
+    """La API rechaza con error 3001 un application/json de cuerpo vacio.
+
+    Afecta a todas las acciones sin payload: orbit, dock, accept, fulfill,
+    extract, siphon, los scan y negotiate.
+    """
+    c, sesion = cliente(settings, [RespuestaFalsa(200, {"data": {"nav": {}}})])
+    c.post("/my/ships/MOIBE-1/orbit")
+
+    assert sesion.llamadas[0]["json"] == {}
+
+
+def test_un_get_sin_cuerpo_no_manda_json(settings):
+    """Los GET no deben arrastrar un cuerpo: los parametros van en la query."""
+    c, sesion = cliente(settings, [RespuestaFalsa(200, {"data": AGENTE})])
+    c.get("/my/agent")
+
+    assert sesion.llamadas[0]["json"] is None
