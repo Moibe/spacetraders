@@ -119,6 +119,10 @@ def generar(bundle: pathlib.Path, destino: pathlib.Path, version: str) -> None:
             "--use-union-operator",
             "--snake-case-field",
             "--allow-population-by-field-name",
+            # Sin esto, los schemas que son un simple string con formato
+            # (WaypointSymbol, SystemSymbol) salen como RootModel, que no se puede
+            # interpolar ni formatear: `f"{nave.nav.waypoint_symbol:<18}"` explota.
+            "--collapse-root-models",
             "--formatters",
             "black",
         ],

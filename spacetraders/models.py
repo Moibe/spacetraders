@@ -16,7 +16,6 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    RootModel,
     confloat,
     conint,
     constr,
@@ -342,27 +341,6 @@ class Mount(BaseModel):
         populate_by_name=True,
     )
     symbol: str = Field(..., description='The symbol of the mount.')
-
-
-class ShipComponentCondition(RootModel[confloat(ge=0.0, le=1.0)]):
-    root: confloat(ge=0.0, le=1.0) = Field(
-        ...,
-        description='The repairable condition of a component. A value of 0 indicates the component needs significant repairs, while a value of 1 indicates the component is in near perfect condition. As the condition of a component is repaired, the overall integrity of the component decreases.',
-    )
-
-
-class ShipComponentIntegrity(RootModel[confloat(ge=0.0, le=1.0)]):
-    root: confloat(ge=0.0, le=1.0) = Field(
-        ...,
-        description='The overall integrity of the component, which determines the performance of the component. A value of 0 indicates that the component is almost completely degraded, while a value of 1 indicates that the component is in near perfect condition. The integrity of the component is non-repairable, and represents permanent wear over time.',
-    )
-
-
-class ShipComponentQuality(RootModel[float]):
-    root: float = Field(
-        ...,
-        description='The overall quality of the component, which determines the quality of the component. High quality components return more ships parts and ship plating when a ship is scrapped. But also require more of these parts to repair. This is transparent to the player, as the parts are bought from/sold to the marketplace.',
-    )
 
 
 class Symbol(StrEnum):
@@ -770,10 +748,6 @@ class SystemFaction(BaseModel):
     symbol: FactionSymbol
 
 
-class SystemSymbol(RootModel[constr(min_length=1)]):
-    root: constr(min_length=1) = Field(..., description='The symbol of the system.')
-
-
 class SystemType(StrEnum):
     """
     The type of system.
@@ -979,10 +953,6 @@ class WaypointOrbital(BaseModel):
     )
 
 
-class WaypointSymbol(RootModel[constr(min_length=1)]):
-    root: constr(min_length=1) = Field(..., description='The symbol of the waypoint.')
-
-
 class WaypointTraitSymbol(StrEnum):
     """
     The unique identifier of the trait.
@@ -1088,7 +1058,9 @@ class Chart(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    waypoint_symbol: WaypointSymbol | None = Field(None, alias='waypointSymbol')
+    waypoint_symbol: constr(min_length=1) | None = Field(
+        None, alias='waypointSymbol', description='The symbol of the waypoint.'
+    )
     submitted_by: str | None = Field(
         None,
         alias='submittedBy',
@@ -1195,7 +1167,7 @@ class JumpGate(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    symbol: WaypointSymbol
+    symbol: constr(min_length=1) = Field(..., description='The symbol of the waypoint.')
     connections: list[str] = Field(
         ..., description='All the gates that are connected to this waypoint.'
     )
@@ -1236,7 +1208,9 @@ class MarketTransaction(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    waypoint_symbol: WaypointSymbol = Field(..., alias='waypointSymbol')
+    waypoint_symbol: constr(min_length=1) = Field(
+        ..., alias='waypointSymbol', description='The symbol of the waypoint.'
+    )
     ship_symbol: str = Field(
         ...,
         alias='shipSymbol',
@@ -1268,7 +1242,9 @@ class RepairTransaction(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    waypoint_symbol: WaypointSymbol = Field(..., alias='waypointSymbol')
+    waypoint_symbol: constr(min_length=1) = Field(
+        ..., alias='waypointSymbol', description='The symbol of the waypoint.'
+    )
     ship_symbol: str = Field(
         ..., alias='shipSymbol', description='The symbol of the ship.'
     )
@@ -1308,7 +1284,9 @@ class ScrapTransaction(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    waypoint_symbol: WaypointSymbol = Field(..., alias='waypointSymbol')
+    waypoint_symbol: constr(min_length=1) = Field(
+        ..., alias='waypointSymbol', description='The symbol of the waypoint.'
+    )
     ship_symbol: str = Field(
         ..., alias='shipSymbol', description='The symbol of the ship.'
     )
@@ -1347,14 +1325,23 @@ class ShipEngine(BaseModel):
     symbol: Symbol1 = Field(..., description='The symbol of the engine.')
     name: str = Field(..., description='The name of the engine.')
     description: str = Field(..., description='The description of the engine.')
-    condition: ShipComponentCondition
-    integrity: ShipComponentIntegrity
+    condition: confloat(ge=0.0, le=1.0) = Field(
+        ...,
+        description='The repairable condition of a component. A value of 0 indicates the component needs significant repairs, while a value of 1 indicates the component is in near perfect condition. As the condition of a component is repaired, the overall integrity of the component decreases.',
+    )
+    integrity: confloat(ge=0.0, le=1.0) = Field(
+        ...,
+        description='The overall integrity of the component, which determines the performance of the component. A value of 0 indicates that the component is almost completely degraded, while a value of 1 indicates that the component is in near perfect condition. The integrity of the component is non-repairable, and represents permanent wear over time.',
+    )
     speed: conint(ge=1) = Field(
         ...,
         description='The speed stat of this engine. The higher the speed, the faster a ship can travel from one point to another. Reduces the time of arrival when navigating the ship.',
     )
     requirements: ShipRequirements
-    quality: ShipComponentQuality
+    quality: float = Field(
+        ...,
+        description='The overall quality of the component, which determines the quality of the component. High quality components return more ships parts and ship plating when a ship is scrapped. But also require more of these parts to repair. This is transparent to the player, as the parts are bought from/sold to the marketplace.',
+    )
 
 
 class ShipFrame(BaseModel):
@@ -1368,8 +1355,14 @@ class ShipFrame(BaseModel):
     symbol: Symbol2 = Field(..., description='Symbol of the frame.')
     name: str = Field(..., description='Name of the frame.')
     description: str = Field(..., description='Description of the frame.')
-    condition: ShipComponentCondition
-    integrity: ShipComponentIntegrity
+    condition: confloat(ge=0.0, le=1.0) = Field(
+        ...,
+        description='The repairable condition of a component. A value of 0 indicates the component needs significant repairs, while a value of 1 indicates the component is in near perfect condition. As the condition of a component is repaired, the overall integrity of the component decreases.',
+    )
+    integrity: confloat(ge=0.0, le=1.0) = Field(
+        ...,
+        description='The overall integrity of the component, which determines the performance of the component. A value of 0 indicates that the component is almost completely degraded, while a value of 1 indicates that the component is in near perfect condition. The integrity of the component is non-repairable, and represents permanent wear over time.',
+    )
     module_slots: conint(ge=0) = Field(
         ...,
         alias='moduleSlots',
@@ -1386,7 +1379,10 @@ class ShipFrame(BaseModel):
         description='The maximum amount of fuel that can be stored in this ship. When refueling, the ship will be refueled to this amount.',
     )
     requirements: ShipRequirements
-    quality: ShipComponentQuality
+    quality: float = Field(
+        ...,
+        description='The overall quality of the component, which determines the quality of the component. High quality components return more ships parts and ship plating when a ship is scrapped. But also require more of these parts to repair. This is transparent to the player, as the parts are bought from/sold to the marketplace.',
+    )
 
 
 class ShipModule(BaseModel):
@@ -1443,7 +1439,9 @@ class ShipNavRouteWaypoint(BaseModel):
     )
     symbol: constr(min_length=1) = Field(..., description='The symbol of the waypoint.')
     type: WaypointType
-    system_symbol: SystemSymbol = Field(..., alias='systemSymbol')
+    system_symbol: constr(min_length=1) = Field(
+        ..., alias='systemSymbol', description='The symbol of the system.'
+    )
     x: int = Field(..., description='Position in the universe in the x axis.')
     y: int = Field(..., description='Position in the universe in the y axis.')
 
@@ -1458,7 +1456,9 @@ class ShipNavRouteWaypointDeprecated(BaseModel):
     )
     symbol: constr(min_length=1) = Field(..., description='The symbol of the waypoint.')
     type: WaypointType
-    system_symbol: SystemSymbol = Field(..., alias='systemSymbol')
+    system_symbol: constr(min_length=1) = Field(
+        ..., alias='systemSymbol', description='The symbol of the system.'
+    )
     x: int = Field(..., description='Position in the universe in the x axis.')
     y: int = Field(..., description='Position in the universe in the y axis.')
 
@@ -1474,15 +1474,24 @@ class ShipReactor(BaseModel):
     symbol: Symbol5 = Field(..., description='Symbol of the reactor.')
     name: str = Field(..., description='Name of the reactor.')
     description: str = Field(..., description='Description of the reactor.')
-    condition: ShipComponentCondition
-    integrity: ShipComponentIntegrity
+    condition: confloat(ge=0.0, le=1.0) = Field(
+        ...,
+        description='The repairable condition of a component. A value of 0 indicates the component needs significant repairs, while a value of 1 indicates the component is in near perfect condition. As the condition of a component is repaired, the overall integrity of the component decreases.',
+    )
+    integrity: confloat(ge=0.0, le=1.0) = Field(
+        ...,
+        description='The overall integrity of the component, which determines the performance of the component. A value of 0 indicates that the component is almost completely degraded, while a value of 1 indicates that the component is in near perfect condition. The integrity of the component is non-repairable, and represents permanent wear over time.',
+    )
     power_output: conint(ge=1) = Field(
         ...,
         alias='powerOutput',
         description="The amount of power provided by this reactor. The more power a reactor provides to the ship, the lower the cooldown it gets when using a module or mount that taxes the ship's power.",
     )
     requirements: ShipRequirements
-    quality: ShipComponentQuality
+    quality: float = Field(
+        ...,
+        description='The overall quality of the component, which determines the quality of the component. High quality components return more ships parts and ship plating when a ship is scrapped. But also require more of these parts to repair. This is transparent to the player, as the parts are bought from/sold to the marketplace.',
+    )
 
 
 class ShipRegistration(BaseModel):
@@ -1530,7 +1539,9 @@ class ShipyardTransaction(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    waypoint_symbol: WaypointSymbol = Field(..., alias='waypointSymbol')
+    waypoint_symbol: constr(min_length=1) = Field(
+        ..., alias='waypointSymbol', description='The symbol of the waypoint.'
+    )
     ship_symbol: str = Field(
         ...,
         alias='shipSymbol',
@@ -1605,7 +1616,7 @@ class SystemWaypoint(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    symbol: WaypointSymbol
+    symbol: constr(min_length=1) = Field(..., description='The symbol of the waypoint.')
     type: WaypointType
     x: int = Field(
         ...,
@@ -1757,9 +1768,11 @@ class ScannedWaypoint(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    symbol: WaypointSymbol
+    symbol: constr(min_length=1) = Field(..., description='The symbol of the waypoint.')
     type: WaypointType
-    system_symbol: SystemSymbol = Field(..., alias='systemSymbol')
+    system_symbol: constr(min_length=1) = Field(
+        ..., alias='systemSymbol', description='The symbol of the system.'
+    )
     x: int = Field(..., description='Position in the universe in the x axis.')
     y: int = Field(..., description='Position in the universe in the y axis.')
     orbitals: list[WaypointOrbital] = Field(
@@ -1894,9 +1907,11 @@ class Waypoint(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    symbol: WaypointSymbol
+    symbol: constr(min_length=1) = Field(..., description='The symbol of the waypoint.')
     type: WaypointType
-    system_symbol: SystemSymbol = Field(..., alias='systemSymbol')
+    system_symbol: constr(min_length=1) = Field(
+        ..., alias='systemSymbol', description='The symbol of the system.'
+    )
     x: int = Field(
         ...,
         description="Relative position of the waypoint on the system's x axis. This is not an absolute position in the universe.",
@@ -1933,8 +1948,12 @@ class ShipNav(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
-    system_symbol: SystemSymbol = Field(..., alias='systemSymbol')
-    waypoint_symbol: WaypointSymbol = Field(..., alias='waypointSymbol')
+    system_symbol: constr(min_length=1) = Field(
+        ..., alias='systemSymbol', description='The symbol of the system.'
+    )
+    waypoint_symbol: constr(min_length=1) = Field(
+        ..., alias='waypointSymbol', description='The symbol of the waypoint.'
+    )
     route: ShipNavRoute
     status: ShipNavStatus
     flight_mode: ShipNavFlightMode = Field(..., alias='flightMode')
