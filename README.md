@@ -76,7 +76,7 @@ todos los tokens de agente**. Por eso el cliente nunca guarda un token solo, sin
 ```
 .spacetraders/agent.json
 {
-  "agent_symbol": "MOIBE_1",
+  "agent_symbol": "MOIBE",
   "faction": "COSMIC",
   "token": "...",
   "reset_date": "2026-08-16",
@@ -145,7 +145,7 @@ como `camelCase` a la API.
 
 ```bash
 python -m bots.contract_runner --cycles 1
-python -m bots.contract_runner --ship MOIBE_1-1 --cycles 3 -v
+python -m bots.contract_runner --ship MOIBE-1 --cycles 3 -v
 ```
 
 Cierra el primer loop rentable del juego con una sola nave: acepta (o negocia) un
