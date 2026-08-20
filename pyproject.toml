@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "spacetraders"
 version = "0.2.0"
@@ -8,6 +12,9 @@ dependencies = [
     "pydantic>=2.9",
     "python-dotenv>=1.0",
 ]
+
+[tool.setuptools]
+packages = ["spacetraders", "spacetraders.api", "bots"]
 
 [project.optional-dependencies]
 dev = [
