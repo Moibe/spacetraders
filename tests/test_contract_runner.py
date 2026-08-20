@@ -198,3 +198,15 @@ def test_no_viaja_si_ya_esta_en_el_destino():
     corredor(flota).viajar(flota.nave, "X1-SC86-B7")
 
     assert flota.acciones == []
+
+
+def test_vuelve_a_orbita_despues_de_atracar_para_recargar():
+    """Recargar atraca la nave, y navegar atracado falla con 4236.
+
+    El estado hay que consultarlo a la API: el objeto `nave` que tiene el bot en
+    la mano quedo viejo en el momento en que el propio bot la atraco.
+    """
+    flota = FlotaFalsa(nave_falsa(fuel=82, estado="IN_ORBIT"))
+    corredor(flota).viajar(flota.nave, "X1-SC86-B7")
+
+    assert flota.acciones == ["dock", "refuel", "orbit", "navigate:X1-SC86-B7"]

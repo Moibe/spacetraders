@@ -306,8 +306,8 @@ class ContractRunner:
         combustible ni forma de comprarlo. Y si aun asi no alcanza, se cae a modo
         DRIFT, que consume 1 de combustible a cambio de tardar muchisimo mas.
         """
-        self.fleet.wait_for_arrival(nave.symbol)
-        if self.fleet.get_nav(nave.symbol).waypoint_symbol == destino:
+        nav = self.fleet.wait_for_arrival(nave.symbol)
+        if nav.waypoint_symbol == destino:
             return
 
         self.recargar(nave)
@@ -343,7 +343,11 @@ class ContractRunner:
             raise
 
     def _orbitar(self, nave: Ship) -> None:
-        if str(nave.nav.status) == "DOCKED":
+        # El estado se consulta a la API, no al objeto `nave`: entre que se leyo y
+        # ahora el propio bot pudo haberla atracado para recargar, y navegar
+        # atracado falla con 4236.
+        actual = self.fleet.get_nav(nave.symbol)
+        if str(actual.status) != "IN_ORBIT":
             self.fleet.orbit(nave.symbol)
 
     def _atracar(self, nave: Ship) -> None:
