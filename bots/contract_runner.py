@@ -21,14 +21,19 @@ import logging
 
 from spacetraders import ApiError, Session, SpaceTradersError
 from spacetraders.api import system_of
-from spacetraders.models import Contract, Market, Ship
+from spacetraders.models import Contract, Market, Ship, ShipNavFlightMode
 
 log = logging.getLogger("bots.contract_runner")
 
 # Margen para no quedar sin creditos por completo tras una compra.
 RESERVA_DE_CREDITOS = 5_000
-# Si el tanque baja de esto y hay mercado, se recarga antes de salir.
-UMBRAL_DE_COMBUSTIBLE = 0.35
+# Antes de cada salida se llena el tanque si esta por debajo de esto. Alto a
+# proposito: solo se puede recargar donde ya estas, asi que salir corto es la
+# forma mas facil de quedar varado.
+UMBRAL_DE_COMBUSTIBLE = 0.9
+
+# Codigo de la API cuando el tramo pide mas combustible del que hay a bordo.
+CODE_COMBUSTIBLE_INSUFICIENTE = 4203
 
 
 class ContractRunner:
@@ -189,7 +194,6 @@ class ContractRunner:
 
         self.viajar(nave, mercado_wp)
         self._atracar(nave)
-        self.recargar(nave)
 
         mercado = self.systems.get_market(mercado_wp)
         precio, volumen = self._precio_y_volumen(mercado, mercancia)
@@ -295,13 +299,28 @@ class ContractRunner:
     # ---------------------------------------------------------------- movimiento
 
     def viajar(self, nave: Ship, destino: str) -> None:
-        """Lleva la nave al waypoint, esperando la llegada si hace falta."""
+        """Lleva la nave al waypoint, esperando la llegada si hace falta.
+
+        Antes de salir llena el tanque, porque el unico lugar donde se puede
+        recargar es el waypoint donde ya estas: si sales corto, quedas varado sin
+        combustible ni forma de comprarlo. Y si aun asi no alcanza, se cae a modo
+        DRIFT, que consume 1 de combustible a cambio de tardar muchisimo mas.
+        """
         self.fleet.wait_for_arrival(nave.symbol)
         if self.fleet.get_nav(nave.symbol).waypoint_symbol == destino:
             return
 
+        self.recargar(nave)
         self._orbitar(nave)
-        resultado = self.fleet.navigate(nave.symbol, destino)
+
+        try:
+            resultado = self.fleet.navigate(nave.symbol, destino)
+        except ApiError as exc:
+            if exc.code != CODE_COMBUSTIBLE_INSUFICIENTE:
+                raise
+            log.warning("%s", exc.message)
+            resultado = self._navegar_a_la_deriva(nave, destino)
+
         log.info(
             "navegando a %s, llega %s (fuel %s/%s)",
             destino,
@@ -310,6 +329,18 @@ class ContractRunner:
             resultado.fuel.capacity if resultado.fuel else "?",
         )
         self.fleet.wait_for_arrival(nave.symbol)
+
+    def _navegar_a_la_deriva(self, nave: Ship, destino: str):
+        """Ultimo recurso: viajar en DRIFT y volver a CRUISE al llegar."""
+        log.warning("sin combustible para el tramo; se va en DRIFT (lento pero llega)")
+        self.fleet.set_flight_mode(nave.symbol, ShipNavFlightMode.drift)
+        try:
+            return self.fleet.navigate(nave.symbol, destino)
+        except ApiError:
+            # Si ni a la deriva se puede, se restaura el modo para no dejar la
+            # nave configurada en DRIFT para siempre.
+            self.fleet.set_flight_mode(nave.symbol, ShipNavFlightMode.cruise)
+            raise
 
     def _orbitar(self, nave: Ship) -> None:
         if str(nave.nav.status) == "DOCKED":
@@ -321,13 +352,20 @@ class ContractRunner:
             self.fleet.dock(nave.symbol)
 
     def recargar(self, nave: Ship) -> None:
-        """Recarga combustible si esta bajo. Silencioso si el waypoint no vende FUEL."""
+        """Llena el tanque si no esta casi lleno. Silencioso si no se vende FUEL aca.
+
+        Recargar exige estar atracado, asi que atraca antes si hace falta. El
+        combustible es barato (unos cientos de creditos por tanque) comparado con
+        quedarse tirado a mitad de camino, asi que conviene salir siempre lleno.
+        """
         nave = self.fleet.get_ship(nave.symbol)
         if nave.fuel.capacity == 0:
             return  # las sondas no consumen combustible
-        if nave.fuel.current / nave.fuel.capacity > UMBRAL_DE_COMBUSTIBLE:
+        if nave.fuel.current / nave.fuel.capacity >= UMBRAL_DE_COMBUSTIBLE:
             return
+
         try:
+            self._atracar(nave)
             resultado = self.fleet.refuel(nave.symbol)
             log.info(
                 "recargado a %s/%s por %s creditos",
@@ -336,7 +374,7 @@ class ContractRunner:
                 f"{resultado.transaction.total_price:,}",
             )
         except ApiError as exc:
-            log.warning("no se pudo recargar en este waypoint: %s", exc)
+            log.warning("no se pudo recargar en %s: %s", nave.nav.waypoint_symbol, exc.message)
 
 
 def main(argv: list[str] | None = None) -> int:
