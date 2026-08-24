@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from .api import ContractsApi, FactionsApi, FleetApi, SystemsApi
-from .client import ApiClient
+from .client import ApiClient, RequestObserver
 from .config import Settings
 from .errors import ApiError, ConfigError, ServerResetError, UnauthorizedError
 from .models import Agent, Contract, Ship
@@ -100,9 +100,10 @@ class Session:
         *,
         client: ApiClient | None = None,
         store: TokenStore | None = None,
+        on_request: RequestObserver | None = None,
     ) -> None:
         self.settings = settings or Settings()
-        self.client = client or ApiClient(self.settings)
+        self.client = client or ApiClient(self.settings, on_request=on_request)
         self.store = store or TokenStore(self.settings.token_file)
 
         self.contracts = ContractsApi(self.client)

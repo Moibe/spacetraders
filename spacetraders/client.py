@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import random
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from typing import Any, TypeVar
@@ -40,6 +40,12 @@ BODYLESS_NEEDS_EMPTY_JSON = frozenset({"POST", "PATCH", "PUT"})
 
 MAX_BACKOFF_SECONDS = 30.0
 
+# Firma del hook opcional de auditoria: se llama una vez por cada intento HTTP
+# real (incluye reintentos), nunca por llamada logica. Recibe un dict en vez
+# de un dataclass para no obligar a nadie (spacetraders-api, CLI, bots) a
+# importar un tipo nuevo solo para escuchar.
+RequestObserver = Callable[[dict[str, Any]], None]
+
 
 class ApiClient:
     """Cliente HTTP de bajo nivel contra la API de SpaceTraders."""
@@ -52,12 +58,14 @@ class ApiClient:
         limiter: RateLimiter | None = None,
         session: requests.Session | None = None,
         sleep: Any = time.sleep,
+        on_request: RequestObserver | None = None,
     ) -> None:
         self.settings = settings or Settings()
         self.token = token
         self.limiter = limiter or RateLimiter()
         self._session = session or requests.Session()
         self._sleep = sleep
+        self._on_request = on_request
         # Segundos que el reloj del servidor le lleva al local (ver server_now).
         self._clock_skew = 0.0
         self._session.headers.update(
@@ -148,6 +156,7 @@ class ApiClient:
 
         for intento in range(1, intentos + 1):
             self.limiter.acquire()
+            inicio = time.monotonic()
 
             try:
                 respuesta = self._session.request(
@@ -160,6 +169,7 @@ class ApiClient:
                 )
             except requests.exceptions.RequestException as exc:
                 ultimo_error = TransportError(f"{method} {url} fallo: {exc}")
+                self._notificar(method, endpoint, None, inicio, ok=False, error=str(ultimo_error))
                 # Sin respuesta no sabemos si el servidor aplico el cambio; solo se
                 # reintenta lo idempotente para no duplicar compras o entregas.
                 if method not in IDEMPOTENT_METHODS or intento == intentos:
@@ -173,12 +183,18 @@ class ApiClient:
             payload = self._payload(respuesta)
 
             if respuesta.ok:
+                self._notificar(
+                    method, endpoint, respuesta.status_code, inicio, ok=True, error=None
+                )
                 return payload if isinstance(payload, dict) else {"data": payload}
 
             error = error_from_response(
                 respuesta.status_code,
                 payload if isinstance(payload, dict) else None,
                 fallback=f"{method} {endpoint} devolvio HTTP {respuesta.status_code}",
+            )
+            self._notificar(
+                method, endpoint, respuesta.status_code, inicio, ok=False, error=error.message
             )
 
             if respuesta.status_code == 429:
@@ -321,6 +337,38 @@ class ApiClient:
                 pass
 
         return 1.0
+
+    def _notificar(
+        self,
+        method: str,
+        endpoint: str,
+        status_code: int | None,
+        inicio: float,
+        *,
+        ok: bool,
+        error: str | None,
+    ) -> None:
+        """Reporta un intento HTTP real (no una llamada logica) a `on_request`.
+
+        Nunca deja que un fallo del observador (ej. un error de SQLite del lado
+        de spacetraders-api) tumbe la peticion real al juego -- se registra y
+        se ignora.
+        """
+        if self._on_request is None:
+            return
+        try:
+            self._on_request(
+                {
+                    "method": method,
+                    "endpoint": endpoint,
+                    "status_code": status_code,
+                    "duration_ms": (time.monotonic() - inicio) * 1000,
+                    "ok": ok,
+                    "error": error,
+                }
+            )
+        except Exception:
+            log.exception("fallo el hook on_request; se ignora")
 
     def _esperar_backoff(self, intento: int, *, motivo: str) -> None:
         """Backoff exponencial con jitter, para no sincronizar reintentos."""
